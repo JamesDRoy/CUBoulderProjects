@@ -1,0 +1,217 @@
+---
+title: "Analysis of NYC Shootings by Age"
+author: "James Roy"
+date: "2023-03-03"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Overview
+
+       Known for being the economic capital of the world, New York has a lot of 
+    money, but also a lot of crime. Not all crime happens to the same people, 
+    at the same time, or for the same reasons. In order to help reduce crime, 
+    especially shootings, it is important to look into the data, and figure 
+    out where most of these shootings are occurring, why they are happening, and 
+    how we can prevent them in the future. 
+
+# Data
+
+           For the scope of this study, we will isolate NYC Precinct Data, and hone in
+    on how a person's age affects crime statistics. As of 2006, the NYPD started 
+    publicly sharing information on its shootings. The Office of Management 
+    Analysis and Planning has oversight on all the data, so it is fairly 
+    reliable, but every organization can have its biases.
+
+
+# Methods and Analysis
+
+          In the next section, we will perform our research and analysis. This will
+    provide the reader an in depth guide into the methodology used to derive 
+    our results. Ultimately we are going to do the following:
+    
+    1. Retrieve Data on NYPD Shootings 
+    2. Isolate Age Statistics and Shooting Statistics
+    3a. Perform Descriptive Analytics, comparing Shooter Age to Victim Age
+    3b. Create Graphs to Aide Interpretation of Data
+    4. Conclusion, Identification of Bias, and Future Research
+
+
+*Important Libraries Used: tidyverse, lubridate, stringr*
+
+## Step 1 Identify and Import The Data
+      
+      In this step we import the main CSV file from the City of New York website. 
+      This data includes many variables we will not need, but can save for future study.
+
+```{r libraries}
+library(lubridate)
+library(stringr)
+library(readr)
+```
+
+```{r get_nypd_data}
+
+url_in <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+nypd_data <- url_in
+```
+
+## Step 2 Tidy and Transform The Data
+
+      In the following steps we will organize and transform our data. This will
+      provide us with clearer understanding of the data set, and help determine how 
+      future data will be interacted with. 
+      
+      For this project, we are going to save four descriptive statistics into our 
+      data frame - nypd_data : OCCUR_DATE, BORO, PERP_AGE_GROUP, and VIC_AGE_GROUP. 
+      Our main focus will be the latter two variables, which identify the age of the
+      perpetrator and the age of the victim.
+
+
+```{r tidying and transformation}
+library(tidyverse)
+
+nypd_data = nypd_data %>% select(OCCUR_DATE, BORO, PERP_AGE_GROUP, 
+                                 VIC_AGE_GROUP)
+
+#Filters out unknown information and Outliers
+
+nypd_data_age <- dplyr::filter(nypd_data, PERP_AGE_GROUP %in% 
+                                 c("<18","18-24","25-44","45-64","65+"))
+
+# Tidy Data
+
+nypd_data_age
+
+```
+## Step 3 Visualize and Analyze
+
+      Now that we have transformed our data, the remaining steps will be easy to follow.
+      First we want to observe the perpetrator statistics in a bar graph. Then we do
+      the same with the victim statistics. 
+
+```{r Analysis & Visualization}
+
+# Bar graph showing the age of perps in shootings
+
+perp_age_graph <- ggplot(nypd_data_age, aes(x = PERP_AGE_GROUP)) +
+  geom_bar() +
+  labs(title = "Perpetrator Age",
+       x = "Perp Age",
+       y = "Shootings")
+
+perp_age_graph
+
+# Bar graph showing the age of victims in shootings
+
+victim_age_graph <- ggplot(nypd_data_age, aes(x = VIC_AGE_GROUP)) +
+  geom_bar() +
+  labs(title = "Victim Age",
+       x = "Victim Age",
+       y = "Shootings")
+
+victim_age_graph
+
+```
+
+In this intermediate step, we isolate the vic_age numbers and the perp_age
+numbers into a table. This allows us to work with the actual numbers in 
+relation to graphical representations.
+
+```{r Analysis Continued }
+#Raw Table Showing the numbers of this intersection between perp age and victim age
+
+table(nypd_data_age$PERP_AGE_GROUP,nypd_data_age$VIC_AGE_GROUP)
+
+```
+
+After comparing the Bar Graphs of Victim Age and Perpetrator Age, it is
+apparent that the numbers are very similar. We want to figure out why. Next we 
+combine the two categories into a count plot. This helps us to visualize where 
+the similarities actually are between perpetrator and victim age. 
+
+
+```{r Analysis & Visualization Continued}
+
+#Countplot showing intersection of perp age and victim age
+
+count_plot <- ggplot(nypd_data_age, aes(y=VIC_AGE_GROUP, x=PERP_AGE_GROUP)) +
+  geom_count(alpha=1) +
+  labs(title = "Ages",
+       x = "Perps",
+       y = "Victims",
+       size = "Shootings")
+count_plot
+```
+
+
+##  Step 4 Analysis and Conclusion
+
+# Graphs
+
+           Analyzing the perpetrator age graph, we see that the majority of shootings are
+    committed by people between the ages of 18 and 44. We can also note that people
+    under the age of 18 are significantly more likely to shoot a firearm than someone
+    over the age of 45.
+    
+         When we analyze the victim graph, we find the charts eerily similar. People over
+    45, are less likely to shoot a gun and they are less likely to be shot by a gun.
+    Between the age of 18 and 44, people are more likely to shoot, and be shot in NYC.
+    
+          Now, we see there's a similarity. We can prove that 18-24 year olds in NYC are 
+    more likely to be involved in a shooting, followed by 25-44 year olds, <18 year olds,
+    45-64 year olds, and 65+ year olds. We want to map this in a visual way so that
+    a correlation can arise. For this we create a type of heat map, called a count plot.
+    The count plot shows how 18-24 year olds and 25-44 year olds interact with each other,
+    and emphasizes the likelihood of being a victim or a shooter. 
+ 
+
+# Conclusion
+
+            	The purpose of this study was to determine how age affects the likelihood of a
+    gun crime to be committed in NYC. What we found out was rather interesting. First,
+    we categorized victims and perps into age groups: <18, 18-24, 25-44, 45-64, and 
+    65+. We then transformed the the data using R Tidyverse. Next, we created two 
+    bar graphs, a useful data table, and a heat map, representing a correlation
+    between shooter age and victim age. With these visualizations and descriptive
+    statistics we were able to draw the following conclusions: 1. NYC Persons over
+    the age of 45 are unlikely to be involved in a crime. 2. NYC Persons between the
+    age of 18 and 44, are most likely to to be involved in a crime, whether the 
+    perpetrator or the victim. 3.It is likely that crimes are typically committed 
+    within specific age groups. We know this because of the large number of criminals
+    and victims in the 18-44 range.
+
+
+
+# Bias
+
+          In any data analysis, it is impossible to rid yourself of all biases. We have done
+    our best to remain as objective as possible, only presenting the data and findings
+    that we have through this R document. The steps and methodology are all available.
+    Despite this, it is possible the NYC government wants to undercut their crime 
+    statistics. It is also possible that certain age groups do not report as many shootings.
+    Furthermore, we removed some data that is unknown, since there are 
+    ongoing cases and investigations. There are many biases to be wary of, but all in all
+    we have done a good job at deterring and removing any forms of bias. 
+
+# Future Research
+
+          In the future we would like to study some of the other statistics that affect
+    shooting crime, such as income, precinct, education, nationality, sex, housing,
+    and so on. 
+    
+          The current step is creating a model to determine exactly how the age of the 
+    victim is related to the age of the perp. As of now we know who is most likely
+    to commit a shooting, and who is most likely to be shot. But we do not know 
+    precisely why this is true, or who exactly they would be shot by. We can speculate,
+    however, that shootings typically happen within age groups.
+
+
+

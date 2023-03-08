@@ -1,0 +1,408 @@
+---
+title: "Analysis of US Covid-19 Death Rates in the United States"
+author: "James Roy"
+date: "2023-03-01"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+    Nearing the end of 2019, a novel coronavirus named SARS-CoV-2, was discovered in China. It quickly spread across the world, becoming one of the biggest pandemics of the century. Now that the pandemic has largely relaxed, it is important for us to look back at the statistics, and figure out what really happened. 
+    
+*For clarity, we will use the term 'Covid-19' for all cases and deaths, when referring to the virus: SARS-CoV-2, or the disease it creates: Covid-19.*
+
+
+# Data
+
+    For the scope of this study, we will isolate US Data, observe how different states performed, and determine how the case rate affects the Covid-19 death rate. The data used was retreived from the Johns Hopkins University: Center for Systems Science and Engineering, through their github: CSSEGISandData. 
+
+
+# Methods and Analysis
+
+    The following section comprises of the majority of our research and analysis. All the steps, deductions, and processes will be provided together with the findings and important outcomes. The presentation should be clear enough to follow and reproduce for future study.
+
+*Important Libraries Used: tidyverse, lubridate, stringr*
+
+## Step 1 Identify and Import The Data
+
+In this step we import four main CSV files from the JHU Github Account. This is includes global data on deaths and cases, and US data on deaths and cases. 
+```{r libraries}
+library(lubridate)
+library(stringr)
+```
+
+
+```{r get_jhu_data}
+# Get Current Data in the four files
+# They all begin the same way
+
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+file_names <- c("time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_global.csv", "time_series_covid19_confirmed_US.csv", "time_series_covid19_deaths_US.csv")
+
+urls <- str_c(url_in,file_names)
+```
+
+## Step 2 Tidy and Transform The Data
+
+In the next steps we will need to organize and transform our data for clearer understanding. Here we read the data into the following variables: global_cases, global_deaths, US_cases, and US_deaths.
+
+```{r import_data, message = FALSE}
+library(tidyverse)
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+US_cases <- read_csv(urls[3])
+US_deaths<- read_csv(urls[4])
+```
+
+After looking at the global data, we will tidy it up in order to see the colomns: date, cases, and deaths. We will also rename region and state to make it more R friendly and tidy. Then we will get rid of Lat and long.
+
+```{r tidy_global_data}
+
+#tidy global cases
+
+global_cases <- global_cases %>% 
+  pivot_longer(cols = -c(`Province/State`,`Country/Region`, Lat, Long),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat,Long))
+
+#tidy global deaths
+
+global_deaths <- global_deaths %>% 
+  pivot_longer(cols = -c(`Province/State`,`Country/Region`, Lat, Long),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+#combine global cases and deaths
+
+global <- global_cases %>%
+  full_join(global_deaths)  %>%
+  rename(Province_State = `Province/State`,
+         Country_Region = `Country/Region`) %>%
+  mutate(date = mdy(date))
+
+#returns Joining with `by = join_by(`Province/State`, `Country/Region`, date, cases)`
+
+#go over code and make changes as necessary
+summary(global)
+
+#removed where 0 cases because skew/outliers/wont be able to tell as much from deaths
+global <- global %>% filter(cases>0)
+summary(global)
+
+#check data to be valid, they are all in the US which makes sense
+global %>% filter(cases>100000000)
+
+
+```
+
+We repeat the same process with the US Data:
+
+
+```{r tidy_US_data}
+#cleaning US deaths data
+
+US_deaths <- US_deaths %>% 
+     pivot_longer(cols = -(UID:Population),
+                  names_to = "date",
+                  values_to = "deaths") %>%
+     select(Admin2:"deaths") %>%
+     mutate(date = mdy(date)) %>%
+     select(-c(Lat,Long_))
+
+#cleaning US cases data
+
+US_cases <- US_cases %>% 
+          pivot_longer(cols = -(UID:Combined_Key),
+                                names_to = "date",
+                                values_to = "cases") %>%
+          select(Admin2:"cases") %>%
+          mutate(date = mdy(date)) %>%
+          select(-c(Lat,Long_))
+          
+#joining US data
+
+US <- US_cases %>%
+  full_join(US_deaths)
+
+#returns - Joining with `by = join_by(Admin2, Province_State, Country_Region, Combined_Key, date)`
+
+```
+
+Next we want the global and US Data to be compatible. By comparing the US data to Global data, we can see if the data sets are consistent. Since they are, we have stronger proof that the US data we are using is reliable, and we know that the factors affecting death rates, on a state by state basis, are most likely not affected by external factors.
+
+```{r tidy_all_data}
+
+#making global have the same entries as US
+
+global <- global  %>%
+     unite("Combined_Key", 
+     c(Province_State, Country_Region),
+ sep = ", ",
+ na.rm = TRUE,
+ remove = FALSE)
+
+# need population data globally
+
+uid_look_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+#cleanup a bit
+
+uid <- read_csv(uid_look_url) %>%
+    select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+    
+#still need to join data
+
+global <- global  %>%
+     left_join(uid, by = c("Province_State","Country_Region")) %>%
+     select(-c(UID,FIPS)) %>%
+     select(Province_State, Country_Region, date, 
+            cases, deaths, Population, Combined_Key)
+```
+
+
+## Step 3 Visualize and Analyze
+
+Now that we have identified, organized, and confirmed the reliability of our data, we would like to start analyzing the information. First we will look at deaths per million, by state. This information can help us determine which states had higher or lower survival rates for the Covid-19 disease. The reasons for this are many. Were there better hospitals in that state? How were policies enforced? What was the proximity of living quarters? How many tests were provided? We can't answer those questions with this dataset, but we can ask: how does the case rate impact the death rate? Then we can start to ask why.
+
+Here we sort the data to graph:
+
+```{r Sorting the Data to Visualize - US}
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill =deaths *1000000 / Population) %>%
+  ungroup()
+
+#check online to make sure population info is correct
+
+US_totals <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill =deaths *1000000 / Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+#if cant see anything at beginning of data use tails to check end of data
+
+tail(US_totals)
+
+
+```
+
+Now we can graph the data:
+
+```{r Visualize The Data - US}
+
+#total num cases and deaths since covid reported in US
+
+US_totals %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = "Exhibit 1: Covid19 in US", y= NULL)
+
+#total num cases and deaths since covid reported in Washington
+
+state <- "Washington" 
+US_by_state %>%
+  filter(Province_State == state)  %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("Exhibit 2: Covid19 in ", state), y= NULL)
+
+#total num cases and deaths since covid reported in New Jersey
+
+state <- "New Jersey" 
+US_by_state %>%
+  filter(Province_State == state)  %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("Exhibit 2: Covid19 in ", state), y= NULL)
+
+
+
+# what data are we looking at?
+
+max(US_totals$date)
+max(US_totals$deaths)
+
+#raises questions are new cases flat, have things leveled off?
+#we need to analyze this
+#transform data again, add new_case and add new_deaths
+
+US_by_state <- US_by_state %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+US_totals <- US_totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+tail(US_totals)
+tail(US_totals %>% select(new_cases,new_deaths,everything()))
+
+### now graph new cases and new deaths in US
+
+US_totals %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = "Exhibit 3: New Covid19 in US", y= NULL)
+
+### now graph Washington new cases and new deaths
+
+state <- "Washington" 
+US_by_state %>%
+  filter(Province_State == state)  %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("Exhibit 4: New Covid19 in ", state), y= NULL)
+
+### now graph New Jersey new cases and new deaths
+
+state <- "New Jersey" 
+US_by_state %>%
+  filter(Province_State == state)  %>%
+  filter(cases>0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() + 
+  theme(legend.position = "bottom",
+    axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("Exhibit 4: New Covid19 in ", state), y= NULL)
+
+###comparing state totals to see which was the best, so now we do deaths per thousand cases
+
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000 * cases / population,
+            deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+
+#10 states with smallest deaths per thousand
+
+US_state_totals %>%
+  slice_min(deaths_per_thou, n = 10)  %>%
+#removing population
+select(deaths_per_thou,cases_per_thou,everything())
+
+#10 Worst states with largest deaths per thousands
+
+US_state_totals %>%
+  slice_max(deaths_per_thou, n = 10)  %>%
+#removing population
+select(deaths_per_thou,cases_per_thou,everything())
+
+
+```
+
+
+To determine if case rate implies death rate, we created a linear model as follows:
+
+
+```{r Model Data}
+  #linear model
+mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+
+summary(mod)
+
+### View Predicted Table
+
+US_state_totals %>% mutate(pred = predict(mod))
+
+US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
+US_tot_w_pred
+
+### Plot Predicted vs Real deaths per thousand
+
+US_tot_w_pred %>% ggplot() +
+geom_point(aes(x = cases_per_thou, y = deaths_per_thou), color = "blue") + 
+geom_point(aes(x = cases_per_thou, y = pred), color = "red") +
+labs(title = "Exhibit 5: Prediction vs Real Deaths ", y= NULL)
+
+
+```
+
+# Step 4 Analysis and Conclusion
+
+__Exhibit 1: Covid19 in the US__
+
+In this graph, we showcase the total cases and total deaths from Covid-19 in the US. We see a rapid rise when the pandemic started, and then the curve seems to flatten off. The cases appear to correlate with the deaths.
+
+__Exhibit 2: Covid19 in the Washington and New Jersey__
+
+The same graph as before, but by state. Here we confirm that the US graph correlates to the State Graphs, as would be expected. Washington is in the top 10 performers list, when it comes to deaths by population. New Jersey is in the bottom 10. Both states have similar populations, dense metropolitan areas, and similar coastal temperatures, allowing for better comparison. 
+
+__Exhibit 3: New Covid19 in the US__
+
+The previous graph showed accumulating case and death data. Now we look at the daily rise or decline in cases and deaths, from new case/new death data. 
+
+__Exhibit 4: Covid19 in the Washington and New Jersey__
+
+Once again, we see that the trends in each state generally coincide with the US data as a whole. 
+
+__Exhibit 5: Prediction vs Real Deaths__
+
+In the final graph, we established a linear model to represent how the number of cases affects the number of deaths. There is a clear trend associated with increasing cases and increasing deaths, however, there are a significant amount of outliers. 
+
+## Final Summary
+
+	       Throughout this project, we have been tasked with determining how different US states performed during the Covid-19 Pandemic. We ranked states based on deaths per thousand. The worst performing state was Arizona, and the best performing continental state was Vermont. From this alone, we know that in Vermont, you were less likely to die from Covid-19. But, this does not explain why.
+	
+	        Reasons include: healthcare systems, life expectancy, population density, public policy, proximity indoors, vaccine rates(later in the pandemic), and so on. Our data can not explain this, but we can look at how the number of cases affect the number of deaths. If more cases are proven to cause more deaths, then measures, such as masks/social distancing/daily-testing/vaccines, which may decrease the number of cases, could be the key.
+	
+            We created a linear model to test this hypothesis. In exhibit 5, we see that the model predicts more deaths with more cases. Compared to the real data, there is a pattern that this is true, however, the amount of outliers signifies other factors at play. In conclusion, we can infer that case rates impact death rates, but the significance of this is uncertain.
+
+## Future Research
+
+          For future study, we need to look at a more holistic dataset. State by state there are differences that could contribute to higher death rates. These include: testing, vaccines, masks, geography, population density, transportation methods, ability to work from home, and so on.
+     
+          In this study we have attempted to remain as unbiased as possible. Data was compared and checked for reliability. JHU is a very credible organization. Still, there are imperfections and biases in the data. States, hospitals, and media outlets are prime to provide miselading information and data. Some believe cases or deaths to be over reported, others believe they are under reported. Time will tell, and more data will present itself. This is an ongoing analysis: personal bias, informational bias, and other factors have been, and will be taken into account throughout continuous study.
